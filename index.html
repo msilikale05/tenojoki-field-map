@@ -34,6 +34,20 @@
   .me{width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 2px #1a73e855,0 2px 6px #0006}
   .leaflet-popup-content{margin:10px 12px;font-size:13px}
   .popbtn{margin-top:6px;display:inline-block;border:0;background:var(--navy);color:#fff;padding:6px 10px;border-radius:8px;font-weight:600;cursor:pointer}
+  .toolbar{position:absolute;z-index:1000;left:10px;right:10px;display:flex;gap:8px;bottom:calc(var(--ro,150px) + 18px + env(safe-area-inset-bottom))}
+  .toolbar button{flex:1;border:0;border-radius:12px;padding:10px 8px;font-weight:700;font-size:14px;background:#fff;color:var(--navy);box-shadow:0 3px 10px #0004;cursor:pointer}
+  .toolbar .rec.on{background:#e63946;color:#fff}
+  .sheet{position:absolute;z-index:1200;left:0;right:0;bottom:0;max-height:78%;overflow:auto;background:var(--panel);backdrop-filter:blur(8px);border-radius:16px 16px 0 0;box-shadow:0 -6px 24px #0004;padding:12px 14px calc(16px + env(safe-area-inset-bottom));display:none}
+  .sheet.open{display:block}
+  .sheet .row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .tabs{display:flex;gap:6px;margin:6px 0 10px}.tabs button{flex:1;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:10px;padding:8px;font-weight:700}
+  .tabs button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .item{border:1px solid var(--line);border-radius:12px;padding:9px 10px;margin:8px 0}
+  .item .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.item .acts button,.btn{border:0;border-radius:8px;padding:7px 10px;font-weight:600;background:#e9edf1;color:#1f3346}
+  .btn.primary{background:var(--navy);color:#fff}.btn.danger{background:#fde2e4;color:#a4161a}
+  .form label{display:block;font-size:12px;color:var(--muted);margin:8px 0 3px}.form select,.form textarea,.form input[type=text]{width:100%;box-sizing:border-box;font-size:15px;padding:8px;border-radius:8px;border:1px solid var(--line);background:#fff}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0}.stats div{background:#f1f4f6;border-radius:8px;padding:6px;text-align:center}.stats b{display:block;font-size:16px}
+  .head{width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:22px solid #1a73e8aa;position:absolute;left:0;top:-20px;transform-origin:9px 29px}
   .toast{position:absolute;z-index:1100;left:50%;transform:translateX(-50%);top:calc(108px + env(safe-area-inset-top));background:#1f3346;color:#fff;padding:8px 14px;border-radius:999px;font-size:13px;display:none;box-shadow:0 3px 10px #0004}
 </style>
 </head>
@@ -48,6 +62,12 @@
   <button id="btnFollow" title="Follow my position">➤</button>
   <button id="btnGrid" title="UTM 5 km grid">#</button>
   <button id="btnOffline" title="Save map for offline use">⤓</button>
+  <button id="btnCompass" title="Compass on/off">🧭</button>
+</div>
+<div class="toolbar">
+  <button id="btnRec" class="rec" title="Record track">● REC</button>
+  <button id="btnPin" title="Add point at my position">＋ Point</button>
+  <button id="btnTools" title="Tracks, points, share, safety">☰ Field</button>
 </div>
 <div class="toast" id="toast"></div>
 <div class="readout" id="readout">
@@ -71,13 +91,20 @@ const dms = (v, p, n) => { const h = v >= 0 ? p : n; let t = Math.round(Math.abs
 const toast = t => { const el = document.getElementById("toast"); el.textContent = t; el.style.display = "block"; clearTimeout(el._t); el._t = setTimeout(() => el.style.display = "none", 2600); };
 
 // ---------- map & layers
-const map = L.map("map", { zoomControl: false, minZoom: 6, maxZoom: 17, attributionControl: true }).setView([69.75, 26.8], 9);
+const map = L.map("map", { zoomControl: false, minZoom: 6, maxZoom: 19, attributionControl: true }).setView([69.75, 26.8], 9);
 L.control.zoom({ position: "topright" }).addTo(map);
 L.control.scale({ metric: true, imperial: false, position: "bottomleft" }).addTo(map);
-const teno = L.tileLayer("tiles/{z}/{x}/{y}.jpg", { minZoom: 6, maxZoom: 17, minNativeZoom: 8, maxNativeZoom: 13,
-  bounds: [[69.2, 24.7], [70.45, 29.0]], detectRetina: true, attribution: "© OpenStreetMap contributors · Relief: Copernicus DEM © DLR/Airbus, ESA" }).addTo(map);
-const otm = L.tileLayer("https://tile.opentopomap.org/{z}/{x}/{y}.png", { maxZoom: 17, attribution: "© OpenStreetMap contributors, SRTM · © OpenTopoMap (CC-BY-SA)" });
-const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap contributors" });
+const tenoBase = L.tileLayer("tiles/{z}/{x}/{y}.jpg", { minZoom: 6, maxZoom: 19, minNativeZoom: 8, maxNativeZoom: 13,
+  bounds: [[69.2, 24.7], [70.45, 29.0]], attribution: "© OpenStreetMap contributors · Relief: Copernicus DEM © DLR/Airbus, ESA" });
+// sharper zoom-14 tiles exist for the A1–A3 study areas; elsewhere the zoom-13 map underneath shows through
+const tenoDetail = L.tileLayer("tiles/{z}/{x}/{y}.jpg", { minZoom: 14, maxZoom: 19, minNativeZoom: 14, maxNativeZoom: 14,
+  bounds: [[69.26, 24.92], [70.37, 28.82]], errorTileUrl: "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" });
+// zoom 16+: OpenStreetMap street detail on top when online; offline the tiles fail quietly and the Tenojoki map shows through
+const tenoStreet = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { minZoom: 16, maxZoom: 19, opacity: 0.92,
+  errorTileUrl: "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==", attribution: "© OpenStreetMap contributors" });
+const teno = L.layerGroup([tenoBase, tenoDetail, tenoStreet]).addTo(map);
+const otm = L.tileLayer("https://tile.opentopomap.org/{z}/{x}/{y}.png", { maxZoom: 19, maxNativeZoom: 17, attribution: "© OpenStreetMap contributors, SRTM · © OpenTopoMap (CC-BY-SA)" });
+const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, maxNativeZoom: 19, attribution: "© OpenStreetMap contributors" });
 const overlays = {};
 L.control.layers({ "Tenojoki map (works offline)": teno, "OpenTopoMap (online)": otm, "OpenStreetMap (online)": osm }, overlays, { position: "topright", collapsed: true }).addTo(map);
 
@@ -139,11 +166,12 @@ function onPos(p) {
   else { me.setLatLng(ll); acc.setLatLng(ll).setRadius(p.coords.accuracy); }
   if (follow) map.panTo(ll);
   showPos(ll, p.coords.accuracy, p.coords.altitude);
+  document.dispatchEvent(new CustomEvent("gps", { detail: p }));
 }
 function startGPS() {
   if (!("geolocation" in navigator)) return toast("GPS not available in this browser");
   if (watchId !== null) { if (last) map.setView(last, Math.max(map.getZoom(), 12)); return; }
-  watchId = navigator.geolocation.watchPosition(onPos, e => toast("GPS: " + e.message), { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+  watchId = navigator.geolocation.watchPosition(onPos, e => toast("GPS: " + e.message), window.gpsOptions || { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
   document.getElementById("btnLocate").classList.add("on"); toast("Searching for GPS…");
 }
 document.getElementById("btnLocate").onclick = startGPS;
@@ -169,7 +197,8 @@ map.on("contextmenu click", e => {
   if (e.originalEvent && e.originalEvent.target.closest && e.originalEvent.target.closest(".leaflet-marker-icon")) return;
   const ll = [e.latlng.lat, e.latlng.lng], u = toUTM(ll);
   L.popup().setLatLng(e.latlng).setContent(`<span class="mono">${ll[0].toFixed(5)}° N ${ll[1].toFixed(5)}° E<br>UTM 35W ${fmt(u[0])} E ${fmt(u[1])} N</span><br><span class="muted">${areaOf(e.latlng)}</span><br>
-    <button class="popbtn" onclick="setTarget(${ll[0]},${ll[1]},'selected point')">Navigate here</button>`).openOn(map);
+    <button class="popbtn" onclick="setTarget(${ll[0]},${ll[1]},'selected point')">Navigate here</button>
+    <button class="popbtn" style="background:#2a6fb0" onclick="addPointAt(${ll[0]},${ll[1]})">＋ Add point here</button>`).openOn(map);
 });
 
 // ---------- offline: service worker + "save for offline"
@@ -181,6 +210,7 @@ document.getElementById("btnOffline").onclick = async e => {
   if (!("caches" in window)) return toast("Offline storage not supported here");
   const urls = [];
   for (let z = 8; z <= 13; z++) for (let x = lon2x(24.7, z); x <= lon2x(29.0, z); x++) for (let y = lat2y(70.45, z); y <= lat2y(69.2, z); y++) urls.push(`tiles/${z}/${x}/${y}.jpg`);
+  const seen = new Set(); for (const a of areas) { const b = a.bounds; for (let x = lon2x(b.getWest(), 14); x <= lon2x(b.getEast(), 14); x++) for (let y = lat2y(b.getNorth(), 14); y <= lat2y(b.getSouth(), 14); y++) { const k = `tiles/14/${x}/${y}.jpg`; if (!seen.has(k)) { seen.add(k); urls.push(k); } } }
   if (!confirm(`Save the Tenojoki map for offline use?\n${urls.length} tiles (about ${Math.round(urls.length * 0.011)} MB). Use Wi-Fi.`)) return;
   btn.dataset.busy = 1; btn.classList.add("on");
   const cache = await caches.open("teno-tiles-v1"); let done = 0, fail = 0;
@@ -191,5 +221,6 @@ document.getElementById("btnOffline").onclick = async e => {
   delete btn.dataset.busy; toast(fail ? `Saved with ${fail} missing tiles` : "Map saved — works without network");
 };
 </script>
+<script src="field.js?v=1"></script>
 </body>
 </html>

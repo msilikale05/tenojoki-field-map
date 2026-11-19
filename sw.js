@@ -1,6 +1,6 @@
 // Tenojoki field map – offline support
-const SHELL = "teno-shell-v1", TILES = "teno-tiles-v1";
-const SHELL_FILES = ["./", "index.html", "manifest.webmanifest", "icon.svg", "icon-192.png",
+const SHELL = "teno-shell-v2", TILES = "teno-tiles-v1";
+const SHELL_FILES = ["./", "index.html", "field.js?v=1", "manifest.webmanifest", "icon.svg", "icon-192.png",
   "data/study_areas.geojson", "data/start_points.geojson",
   "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css",
   "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js",
