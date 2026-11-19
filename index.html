@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tenojoki Field Map</title>
+<meta name="theme-color" content="#1f3346">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root{--navy:#1f3346;--ink:#22303c;--muted:#5d6b78;--panel:#ffffffee;--line:#d5d9de;--accent:#e63946}
+  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--panel:#16212bee;--ink:#e8eef3;--muted:#9fb0bf;--line:#33424f}}
+  html,body{margin:0;height:100%;background:#aad3df;font:14px/1.35 -apple-system,BlinkMacSystemFont,"Helvetica Neue",Helvetica,Arial,sans-serif;color:var(--ink)}
+  #map{position:absolute;inset:0}
+  .bar{position:absolute;z-index:1000;left:10px;right:62px;top:calc(10px + env(safe-area-inset-top));display:flex;flex-direction:column;align-items:flex-start;gap:6px;pointer-events:none}
+  .title{pointer-events:auto;background:var(--navy);color:#fff;border-radius:10px;padding:7px 12px;font-weight:700;letter-spacing:.12em;font-size:13px;box-shadow:0 2px 8px #0003}
+  .chips{display:flex;gap:6px;pointer-events:auto;flex-wrap:nowrap;overflow-x:auto;max-width:100%;scrollbar-width:none;padding-bottom:2px}.chips::-webkit-scrollbar{display:none}
+  .chip{border:0;border-radius:999px;padding:6px 10px;font-weight:700;color:#fff;font-size:12px;box-shadow:0 2px 6px #0003;cursor:pointer;white-space:nowrap;flex:0 0 auto}
+  .readout{position:absolute;z-index:1000;left:10px;right:10px;bottom:calc(12px + env(safe-area-inset-bottom));background:var(--panel);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:14px;padding:10px 12px;box-shadow:0 4px 16px #0003;max-width:520px}
+  .readout .row{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .readout b{font-size:15px}
+  .muted{color:var(--muted);font-size:12px}
+  .mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+  .fab{position:absolute;z-index:1000;right:10px;display:flex;flex-direction:column;gap:9px;top:calc(150px + env(safe-area-inset-top))}
+  .fab button{width:46px;height:46px;border-radius:50%;border:0;background:#fff;color:var(--navy);font-size:20px;box-shadow:0 3px 10px #0004;cursor:pointer}
+  .fab button.on{background:var(--navy);color:#fff}
+  .target{margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
+  .leaflet-control-layers{border-radius:10px!important}
+  .sp-icon{width:26px;height:26px;border-radius:50%;border:3px solid var(--accent);background:#fff8;box-sizing:border-box;position:relative}
+  .sp-icon::after{content:"";position:absolute;left:50%;top:50%;width:7px;height:7px;margin:-3.5px;border-radius:50%;background:var(--accent)}
+  .me{width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 2px #1a73e855,0 2px 6px #0006}
+  .leaflet-popup-content{margin:10px 12px;font-size:13px}
+  .popbtn{margin-top:6px;display:inline-block;border:0;background:var(--navy);color:#fff;padding:6px 10px;border-radius:8px;font-weight:600;cursor:pointer}
+  .toast{position:absolute;z-index:1100;left:50%;transform:translateX(-50%);top:calc(108px + env(safe-area-inset-top));background:#1f3346;color:#fff;padding:8px 14px;border-radius:999px;font-size:13px;display:none;box-shadow:0 3px 10px #0004}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="bar">
+  <div class="title">TENOJOKI</div>
+  <div class="chips" id="chips"></div>
+</div>
+<div class="fab">
+  <button id="btnLocate" title="Show my position">◎</button>
+  <button id="btnFollow" title="Follow my position">➤</button>
+  <button id="btnGrid" title="UTM 5 km grid">#</button>
+  <button id="btnOffline" title="Save map for offline use">⤓</button>
+</div>
+<div class="toast" id="toast"></div>
+<div class="readout" id="readout">
+  <div class="row"><b id="rTitle">Position</b><span class="muted" id="rArea">Tap ◎ to start GPS</span></div>
+  <div class="mono" id="rDec">–</div>
+  <div class="mono" id="rUtm">–</div>
+  <div class="muted" id="rAcc"></div>
+  <div class="target" id="rTarget" style="display:none"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js"></script>
+<script>
+const UTM = "+proj=utm +zone=35 +datum=WGS84 +units=m +no_defs";
+const toUTM = ll => proj4("EPSG:4326", UTM, [ll[1], ll[0]]);   // [lat,lon] -> [E,N]
+const fromUTM = en => { const p = proj4(UTM, "EPSG:4326", en); return [p[1], p[0]]; };
+const fmt = n => Math.round(n).toLocaleString("en-US").replace(/,/g, " ");
+const dms = (v, p, n) => { const h = v >= 0 ? p : n; let t = Math.round(Math.abs(v) * 36000);   // tenths of arc-seconds
+  const d = Math.floor(t / 36000); t -= d * 36000; const m = Math.floor(t / 600); t -= m * 600;
+  return `${d}°${String(m).padStart(2,"0")}′${(t / 10).toFixed(1).padStart(4,"0")}″${h}`; };
+const toast = t => { const el = document.getElementById("toast"); el.textContent = t; el.style.display = "block"; clearTimeout(el._t); el._t = setTimeout(() => el.style.display = "none", 2600); };
+
+// ---------- map & layers
+const map = L.map("map", { zoomControl: false, minZoom: 6, maxZoom: 17, attributionControl: true }).setView([69.75, 26.8], 9);
+L.control.zoom({ position: "topright" }).addTo(map);
+L.control.scale({ metric: true, imperial: false, position: "bottomleft" }).addTo(map);
+const teno = L.tileLayer("tiles/{z}/{x}/{y}.jpg", { minZoom: 6, maxZoom: 17, minNativeZoom: 8, maxNativeZoom: 13,
+  bounds: [[69.2, 24.7], [70.45, 29.0]], detectRetina: true, attribution: "© OpenStreetMap contributors · Relief: Copernicus DEM © DLR/Airbus, ESA" }).addTo(map);
+const otm = L.tileLayer("https://tile.opentopomap.org/{z}/{x}/{y}.png", { maxZoom: 17, attribution: "© OpenStreetMap contributors, SRTM · © OpenTopoMap (CC-BY-SA)" });
+const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap contributors" });
+const overlays = {};
+L.control.layers({ "Tenojoki map (works offline)": teno, "OpenTopoMap (online)": otm, "OpenStreetMap (online)": osm }, overlays, { position: "topright", collapsed: true }).addTo(map);
+
+// ---------- study areas & start points
+let areas = [], starts = [];
+const areaLayer = L.layerGroup().addTo(map), startLayer = L.layerGroup().addTo(map);
+Promise.all([fetch("data/study_areas.geojson").then(r => r.json()), fetch("data/start_points.geojson").then(r => r.json())]).then(([a, s]) => {
+  const chips = document.getElementById("chips");
+  a.features.forEach(f => {
+    const p = f.properties, lyr = L.geoJSON(f, { style: { color: p.colour, weight: 3, fill: false } }).addTo(areaLayer);
+    const b = lyr.getBounds(); areas.push({ id: "A" + p.area_no, name: p.name, colour: p.colour, bounds: b, ring: f.geometry.coordinates[0] });
+    L.marker(b.getNorthWest(), { interactive: false, icon: L.divIcon({ className: "", iconSize: null,
+      html: `<div class="chip" style="background:${p.colour};transform:translate(4px,4px)">A${p.area_no}</div>` }) }).addTo(areaLayer);
+    const c = document.createElement("button"); c.className = "chip"; c.style.background = p.colour; c.textContent = `A${p.area_no} ${p.name}`;
+    c.onclick = () => map.fitBounds(b, { padding: [10, 10] }); chips.appendChild(c);
+  });
+  s.features.forEach(f => {
+    const [lon, lat] = f.geometry.coordinates, u = toUTM([lat, lon]), st = { name: f.properties.name, ll: [lat, lon] }; starts.push(st);
+    L.marker([lat, lon], { icon: L.divIcon({ className: "", html: '<div class="sp-icon"></div>', iconSize: [26, 26], iconAnchor: [13, 13] }) })
+      .bindPopup(`<b>Start point: ${st.name}</b><br><span class="mono">${lat.toFixed(5)}° N ${lon.toFixed(5)}° E<br>${dms(lat,"N","S")} ${dms(lon,"E","W")}<br>UTM 35W ${fmt(u[0])} E ${fmt(u[1])} N</span><br>
+        <button class="popbtn" onclick="setTarget(${lat},${lon},'${st.name.replace(/'/g, "\\'")}')">Navigate here</button>
+        <a class="popbtn" style="background:#5d6b78;text-decoration:none" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}">Road directions</a>`)
+      .addTo(startLayer);
+  });
+  overlays["Study areas A1–A3"] = areaLayer; overlays["Research start points"] = startLayer;
+});
+
+// ---------- UTM 5 km grid (drawn in the browser)
+const gridLayer = L.layerGroup();
+(function buildGrid() {
+  const [e0, n0] = toUTM([69.15, 24.6]), [e1, n1] = toUTM([70.5, 29.1]);
+  const E0 = Math.floor(Math.min(e0, toUTM([70.5, 24.6])[0]) / 5000) * 5000, E1 = Math.ceil(Math.max(e1, toUTM([69.15, 29.1])[0]) / 5000) * 5000;
+  const N0 = Math.floor(n0 / 5000) * 5000, N1 = Math.ceil(n1 / 5000) * 5000;
+  const st = { color: "#1e3a6e", weight: 1, opacity: .45, interactive: false };
+  for (let e = E0; e <= E1; e += 5000) { const pts = []; for (let n = N0; n <= N1; n += 2500) pts.push(fromUTM([e, n])); L.polyline(pts, st).addTo(gridLayer); }
+  for (let n = N0; n <= N1; n += 5000) { const pts = []; for (let e = E0; e <= E1; e += 2500) pts.push(fromUTM([e, n])); L.polyline(pts, st).addTo(gridLayer); }
+})();
+document.getElementById("btnGrid").onclick = e => { if (map.hasLayer(gridLayer)) { map.removeLayer(gridLayer); e.currentTarget.classList.remove("on"); } else { gridLayer.addTo(map); e.currentTarget.classList.add("on"); } };
+
+// ---------- GPS
+let me = null, acc = null, watchId = null, follow = false, last = null, target = null, targetLine = null;
+function areaOf(ll) { const a = areas.find(a => a.bounds.contains(ll)); return a ? `Inside ${a.id} ${a.name}` : "Outside study areas"; }
+function bearing(a, b) { const r = Math.PI / 180, y = Math.sin((b[1] - a[1]) * r) * Math.cos(b[0] * r),
+  x = Math.cos(a[0] * r) * Math.sin(b[0] * r) - Math.sin(a[0] * r) * Math.cos(b[0] * r) * Math.cos((b[1] - a[1]) * r); return (Math.atan2(y, x) / r + 360) % 360; }
+const compass = d => ["N","NE","E","SE","S","SW","W","NW"][Math.round(d / 45) % 8];
+function showPos(ll, accuracy, alt) {
+  const u = toUTM(ll);
+  document.getElementById("rTitle").textContent = "My position";
+  document.getElementById("rArea").textContent = areaOf(L.latLng(ll));
+  document.getElementById("rDec").innerHTML = `${ll[0].toFixed(5)}° N  ${ll[1].toFixed(5)}° E<br>${dms(ll[0],"N","S")}  ${dms(ll[1],"E","W")}`;
+  document.getElementById("rUtm").textContent = `UTM 35W  ${fmt(u[0])} E  ${fmt(u[1])} N`;
+  document.getElementById("rAcc").textContent = `± ${Math.round(accuracy)} m` + (alt != null ? `  ·  altitude ${Math.round(alt)} m` : "");
+  updateTarget();
+}
+function onPos(p) {
+  const ll = [p.coords.latitude, p.coords.longitude]; last = ll;
+  if (!me) { me = L.marker(ll, { icon: L.divIcon({ className: "", html: '<div class="me"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }), zIndexOffset: 1000 }).addTo(map);
+    acc = L.circle(ll, { radius: p.coords.accuracy, color: "#1a73e8", weight: 1, fillOpacity: .12 }).addTo(map); map.setView(ll, Math.max(map.getZoom(), 12)); }
+  else { me.setLatLng(ll); acc.setLatLng(ll).setRadius(p.coords.accuracy); }
+  if (follow) map.panTo(ll);
+  showPos(ll, p.coords.accuracy, p.coords.altitude);
+}
+function startGPS() {
+  if (!("geolocation" in navigator)) return toast("GPS not available in this browser");
+  if (watchId !== null) { if (last) map.setView(last, Math.max(map.getZoom(), 12)); return; }
+  watchId = navigator.geolocation.watchPosition(onPos, e => toast("GPS: " + e.message), { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+  document.getElementById("btnLocate").classList.add("on"); toast("Searching for GPS…");
+}
+document.getElementById("btnLocate").onclick = startGPS;
+document.getElementById("btnFollow").onclick = e => { follow = !follow; e.currentTarget.classList.toggle("on", follow); if (follow) { startGPS(); if (last) map.panTo(last); } toast(follow ? "Following your position" : "Follow off"); };
+map.on("dragstart", () => { if (follow) { follow = false; document.getElementById("btnFollow").classList.remove("on"); } });
+
+// ---------- navigate to a target
+window.setTarget = (lat, lon, name) => { target = { ll: [lat, lon], name }; map.closePopup(); startGPS(); updateTarget(); toast("Navigating to " + name); };
+function updateTarget() {
+  const box = document.getElementById("rTarget");
+  if (!target) { box.style.display = "none"; return; }
+  box.style.display = "block";
+  if (!last) { box.innerHTML = `<b>→ ${target.name}</b><div class="muted">waiting for GPS…</div>`; return; }
+  const d = map.distance(last, target.ll), b = bearing(last, target.ll);
+  box.innerHTML = `<div class="row"><b>→ ${target.name}</b><span class="muted" style="cursor:pointer" onclick="clearTarget()">✕ stop</span></div>
+    <div class="mono">${d >= 1000 ? (d / 1000).toFixed(2) + " km" : Math.round(d) + " m"}  ·  bearing ${Math.round(b)}° (${compass(b)})  ·  straight line</div>`;
+  if (targetLine) targetLine.setLatLngs([last, target.ll]); else targetLine = L.polyline([last, target.ll], { color: "#e63946", weight: 3, dashArray: "6 6" }).addTo(map);
+}
+window.clearTarget = () => { target = null; if (targetLine) { map.removeLayer(targetLine); targetLine = null; } updateTarget(); };
+
+// ---------- tap anywhere: coordinates of that point
+map.on("contextmenu click", e => {
+  if (e.originalEvent && e.originalEvent.target.closest && e.originalEvent.target.closest(".leaflet-marker-icon")) return;
+  const ll = [e.latlng.lat, e.latlng.lng], u = toUTM(ll);
+  L.popup().setLatLng(e.latlng).setContent(`<span class="mono">${ll[0].toFixed(5)}° N ${ll[1].toFixed(5)}° E<br>UTM 35W ${fmt(u[0])} E ${fmt(u[1])} N</span><br><span class="muted">${areaOf(e.latlng)}</span><br>
+    <button class="popbtn" onclick="setTarget(${ll[0]},${ll[1]},'selected point')">Navigate here</button>`).openOn(map);
+});
+
+// ---------- offline: service worker + "save for offline"
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+function lon2x(lon, z) { return Math.floor((lon + 180) / 360 * 2 ** z); }
+function lat2y(lat, z) { const r = lat * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z); }
+document.getElementById("btnOffline").onclick = async e => {
+  const btn = e.currentTarget; if (btn.dataset.busy) return;
+  if (!("caches" in window)) return toast("Offline storage not supported here");
+  const urls = [];
+  for (let z = 8; z <= 13; z++) for (let x = lon2x(24.7, z); x <= lon2x(29.0, z); x++) for (let y = lat2y(70.45, z); y <= lat2y(69.2, z); y++) urls.push(`tiles/${z}/${x}/${y}.jpg`);
+  if (!confirm(`Save the Tenojoki map for offline use?\n${urls.length} tiles (about ${Math.round(urls.length * 0.011)} MB). Use Wi-Fi.`)) return;
+  btn.dataset.busy = 1; btn.classList.add("on");
+  const cache = await caches.open("teno-tiles-v1"); let done = 0, fail = 0;
+  const queue = urls.slice(), worker = async () => { while (queue.length) { const u = queue.shift();
+    try { if (!(await cache.match(u))) { const r = await fetch(u); if (r.ok) await cache.put(u, r); } } catch { fail++; }
+    if (++done % 100 === 0) toast(`Saving offline… ${Math.round(done / urls.length * 100)}%`); } };
+  await Promise.all(Array.from({ length: 6 }, worker));
+  delete btn.dataset.busy; toast(fail ? `Saved with ${fail} missing tiles` : "Map saved — works without network");
+};
+</script>
+</body>
+</html>

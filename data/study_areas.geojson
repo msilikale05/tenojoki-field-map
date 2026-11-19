@@ -1,0 +1,11 @@
+{
+"type": "FeatureCollection",
+"name": "SELECT",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"xy_coordinate_resolution": 1e-06,
+"features": [
+{ "type": "Feature", "properties": { "area_no": 1, "name": "Karasjok", "colour": "#d62839" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 24.985708, 69.272891 ], [ 26.626413, 69.284217 ], [ 26.618081, 69.756579 ], [ 24.940822, 69.744965 ], [ 24.985708, 69.272891 ] ] ] } },
+{ "type": "Feature", "properties": { "area_no": 2, "name": "Utsjoki – Kaldoaivi", "colour": "#e8891c" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 25.663459, 69.603605 ], [ 27.329636, 69.608391 ], [ 27.337118, 70.080738 ], [ 25.633133, 70.075829 ], [ 25.663459, 69.603605 ] ] ] } },
+{ "type": "Feature", "properties": { "area_no": 3, "name": "Tana bru", "colour": "#2a6fb0" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 27.066742, 69.879669 ], [ 28.754112, 69.870999 ], [ 28.794497, 70.343114 ], [ 27.06828, 70.352009 ], [ 27.066742, 69.879669 ] ] ] } }
+]
+}
